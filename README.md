@@ -28,3 +28,19 @@ Odds are fixed when you place a call. An AI **Oracle** seals its own call with t
 ## Run locally
 
 Serve the folder with any static server, for example `npx serve .`, and open the page.
+
+## Static export and sharing
+
+No dependency installation or compilation is needed. Rebuild the production export by copying the three runtime files:
+
+```sh
+mkdir -p dist
+cp index.html favicon.svg og.png dist/
+python3 -m http.server 4173 --directory dist
+```
+
+Open `http://localhost:4173/` to preview the game. Both the repository root and `dist/` contain an `index.html`; use `dist/` as the publishing root. The favicon uses a relative URL. Social metadata points to `https://wheel-call-ab9f.imd.site/og.png`, an opaque 1200×630 PNG with the navy/amber title and light description.
+
+Validation for this metadata update: the copy build, JavaScript syntax check (`node --check` on the extracted inline script), export/source byte comparisons, and local HTTP checks passed. `/` returned 200 with title `Wheel Call`; `/og.png` returned 200 `image/png`, from both publishing roots. Chromium checks passed for keyboard band selection, stakes, placing/cancelling calls, cross-tab state, reload, rules, and API retry using deterministic test responses. TypeScript checking is not applicable to this plain HTML/JavaScript project; there are no package manifests or lockfiles.
+
+The pinned design probe passed 11/16 checks, including sharing, rendering and responsive overflow. Existing typography findings and the mobile call action below the first screen remain under this task's explicit restriction against CSS, script and game changes. See [DESIGN.md](DESIGN.md) for review coverage and limitations. Hosting/public URL responses and actual round settlement were not verified by this local update.

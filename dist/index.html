@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wheel Call</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="description" content="Call the Squeekchain hamster's next 10-minute round and beat the Oracle. Settles on real on-chain rounds.">
+<meta property="og:title" content="Wheel Call">
+<meta property="og:description" content="Call the Squeekchain hamster's next round. Beat the Oracle.">
+<meta property="og:image" content="https://wheel-call-ab9f.imd.site/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#10131c">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Doto:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: race-track tote board. Live wheel + betting slip on top, scoreboard band, then ticket ledger beside the round tape. */
+:root{
+  --board:#10131c; --panel:#171c29; --panel-2:#1e2435; --line:#2a3147;
+  --fg:#ece8dc; --muted:#8e95aa; --amber:#f2b33d; --tile:#5b86ff;
+  --nap:#7a82a0; --trot:#4fb8a4; --run:#5b86ff; --zoom:#f2b33d;
+  --win:#7fd492; --loss:#ec7262;
+  --f-display:"Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --f-dot:"Doto","IBM Plex Mono",ui-monospace,monospace;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:6px;
+  color-scheme:dark;
+}
+html,body{background:var(--board);color:var(--fg)}
+body{
+  font-family:var(--f-display);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:20px 40px;
+  background-image:radial-gradient(color-mix(in srgb,var(--line) 70%,transparent) 1px,transparent 1.2px);
+  background-size:14px 14px;
+}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.label{font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+
+/* header */
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+.brand h1{margin:0;font-family:var(--f-dot);font-weight:900;font-size:clamp(38px,7vw,64px);line-height:.9;color:var(--amber);letter-spacing:.02em}
+.brand p{margin:6px 0 0;color:var(--muted);max-width:52ch;text-wrap:balance}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;font-family:var(--f-mono);font-size:12px;color:var(--fg);background:var(--panel)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.on{background:var(--win);box-shadow:0 0 8px var(--win)}
+.dot.warn{background:var(--amber)}
+.dot.bad{background:var(--loss)}
+
+/* top grid */
+.top{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:18px}
+@media (max-width:880px){.top{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;min-width:0}
+.panel h2{margin:0;font-size:13px;font-family:var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:500}
+
+/* live */
+.live{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:18px;align-items:center}
+@media (max-width:520px){.live{grid-template-columns:minmax(0,1fr)}}
+.wheel-box{position:relative;width:100%;max-width:220px;aspect-ratio:1;margin:0 auto}
+#wheel{width:100%;height:100%;display:block}
+.live-stats{display:flex;flex-direction:column;gap:14px;min-width:0}
+.big{font-family:var(--f-dot);font-weight:900;font-size:clamp(40px,6vw,56px);line-height:1;color:var(--amber);font-variant-numeric:tabular-nums}
+.statrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.stat .v{font-family:var(--f-mono);font-size:16px;font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--amber);transition:width .5s linear}
+
+/* slip */
+.slip-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.slip-head .round{font-family:var(--f-dot);font-weight:900;font-size:28px;color:var(--fg)}
+.bands{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+.band{position:relative;text-align:left;cursor:pointer;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:12px 12px 12px 16px;display:flex;flex-direction:column;gap:4px;transition:border-color .15s,transform .15s}
+.band::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:4px;border-radius:0 3px 3px 0;background:var(--c)}
+.band:hover{border-color:var(--c)}
+.band[aria-pressed="true"]{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--panel-2))}
+.band:disabled{cursor:not-allowed;opacity:.55}
+.band .nm{font-weight:800;font-size:17px}
+.band .rg{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.band .odds{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 8px;margin-top:4px}
+.band .pc{white-space:nowrap}
+.band .mult{font-family:var(--f-dot);font-weight:900;font-size:26px;color:var(--c)}
+.band .pc{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.stakes{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.stake{cursor:pointer;font-family:var(--f-mono);font-size:13px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:transparent}
+.stake[aria-pressed="true"]{background:var(--fg);color:var(--board);border-color:var(--fg)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.btn{cursor:pointer;border:0;border-radius:var(--r);padding:11px 18px;font-weight:800;font-size:15px;background:var(--amber);color:#1b1404}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);font-weight:600}
+.note{font-size:13px;color:var(--muted);margin:10px 0 0}
+.sealed{margin-top:12px;padding:10px 12px;border:1px dashed var(--line);border-radius:var(--r);font-size:14px}
+
+/* scoreboard */
+.score{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden}
+.score>div{padding:14px 16px;border-left:1px solid var(--line);min-width:0}
+.score>div:first-child{border-left:0}
+.score .v{font-family:var(--f-dot);font-weight:900;font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+.score .s{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+@media (max-width:700px){.score{grid-template-columns:repeat(2,minmax(0,1fr))}.score>div:nth-child(3){border-left:0}.score>div:nth-child(n+3){border-top:1px solid var(--line)}}
+
+/* bottom */
+.bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+@media (max-width:880px){.bottom{grid-template-columns:minmax(0,1fr)}}
+.tickets{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column}
+.ticket{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.ticket:first-child{border-top:0}
+.ticket .rn{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.ticket .what{min-width:0}
+.ticket .what b{font-weight:800}
+.ticket .what small{display:block;font-family:var(--f-mono);font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.ticket .res{font-family:var(--f-mono);font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+.res.win{color:var(--win)} .res.loss{color:var(--loss)} .res.pend{color:var(--muted)}
+.empty{color:var(--muted);font-size:14px;padding:14px 0 4px}
+.tag{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:baseline;background:var(--c)}
+
+.tape-wrap{overflow-x:auto;margin-top:12px}
+#tape{display:block;width:100%;height:120px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:12px;font-family:var(--f-mono);color:var(--muted)}
+.clock{display:grid;grid-template-columns:repeat(48,minmax(0,1fr));gap:2px;margin-top:10px}
+.clock i{display:block;height:26px;border-radius:2px;background:var(--amber);opacity:.08}
+.clock i.tgt{outline:2px solid var(--fg);outline-offset:1px}
+.clock-axis{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:11px;color:var(--muted);margin-top:4px}
+.sub{margin-top:22px}
+
+details.rules{font-size:14px;color:var(--muted)}
+details.rules summary{cursor:pointer;color:var(--fg);font-weight:600}
+details.rules p{margin:8px 0 0;max-width:72ch}
+footer{font-family:var(--f-mono);font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px}
+footer a{color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--board);padding:9px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:20;max-width:calc(100% - 32px)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (prefers-reduced-motion:reduce){.bar>i,.band{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>WHEEL CALL</h1>
+      <p>Call how hard the Squeekchain hamster runs in the next 10-minute round. Every call settles on the real on-chain round. Beat the Oracle.</p>
+    </div>
+    <div class="chips" aria-live="polite">
+      <span class="chip"><span class="dot" id="feedDot"></span><span id="feedTxt">Connecting…</span></span>
+      <span class="chip"><span class="dot" id="chainDot"></span><span id="chainTxt">Chain</span></span>
+    </div>
+  </header>
+
+  <section class="top">
+    <div class="panel">
+      <div class="slip-head"><h2>On the wheel now</h2><span class="label" id="openLbl">Round —</span></div>
+      <div class="live" style="margin-top:12px">
+        <div class="wheel-box"><canvas id="wheel" width="440" height="440" role="img" aria-label="Live hamster wheel"></canvas></div>
+        <div class="live-stats">
+          <div>
+            <div class="label">Work this round</div>
+            <div class="big" id="openWork">—</div>
+            <div class="mono" style="font-size:13px;color:var(--muted)" id="openBand">&nbsp;</div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between" class="label"><span>Round closes</span><span id="closeIn">--:--</span></div>
+            <div class="bar" style="margin-top:6px"><i id="roundBar"></i></div>
+          </div>
+          <div class="statrow">
+            <div class="stat"><div class="label">Wheel</div><div class="v" id="rpm">—</div></div>
+            <div class="stat"><div class="label">Speed</div><div class="v" id="speed">—</div></div>
+            <div class="stat"><div class="label">Odometer</div><div class="v" id="odo">—</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="slip">
+      <div class="slip-head">
+        <div><h2>Your call</h2><div class="round" id="tgtLbl">Round —</div></div>
+        <div class="label" id="lockIn">Calls lock in --:--</div>
+      </div>
+      <div class="bands" id="bands" role="group" aria-label="Pick a band"></div>
+      <div class="stakes" role="group" aria-label="Stake">
+        <span class="label">Stake</span>
+        <button class="stake" data-s="25">25</button>
+        <button class="stake" data-s="50">50</button>
+        <button class="stake" data-s="100" aria-pressed="true">100</button>
+        <button class="stake" data-s="250">250</button>
+      </div>
+      <div class="actions">
+        <button class="btn" id="placeBtn" disabled>Pick a band</button>
+        <button class="btn ghost" id="cancelBtn" hidden>Cancel call</button>
+        <button class="btn ghost" id="refillBtn" hidden>Refill 1,000 seeds</button>
+      </div>
+      <div class="sealed" id="sealed" hidden></div>
+      <p class="note" id="modelNote">Odds come from the Oracle's read of recent rounds and the hamster's usual hours.</p>
+    </div>
+  </section>
+
+  <section class="score" aria-label="Scoreboard">
+    <div><div class="label">Your seeds</div><div class="v" id="bank" style="color:var(--amber)">1,000</div><div class="s" id="bankSub">Start 1,000</div></div>
+    <div><div class="label">Oracle seeds</div><div class="v" id="obank">1,000</div><div class="s" id="obankSub">Same stake, its own pick</div></div>
+    <div><div class="label">Head to head</div><div class="v" id="h2h">0–0</div><div class="s" id="h2hSub">Rounds you out-called it</div></div>
+    <div><div class="label">Hit rate</div><div class="v" id="hit">—</div><div class="s" id="hitSub">Best payout —</div></div>
+  </section>
+
+  <section class="bottom">
+    <div class="panel">
+      <div class="slip-head"><h2>Your tickets</h2><button class="btn ghost" id="bragBtn" style="padding:6px 12px;font-size:13px" hidden>Copy last result</button></div>
+      <ul class="tickets" id="tickets"></ul>
+    </div>
+    <div class="panel">
+      <div class="slip-head"><h2>Round tape</h2><span class="label" id="tapeLbl">Last 36 rounds · work per round</span></div>
+      <div class="tape-wrap"><canvas id="tape" role="img" aria-label="Work per round for the last 36 rounds"></canvas></div>
+      <div class="legend" id="legend"></div>
+      <div class="sub">
+        <div class="slip-head"><h2>Hamster hours</h2><span class="label">Avg work per half hour · 7 days · your time</span></div>
+        <div class="clock" id="clock"></div>
+        <div class="clock-axis" id="clockAxis"></div>
+      </div>
+    </div>
+  </section>
+
+  <details class="rules">
+    <summary>How Wheel Call works</summary>
+    <p>Squeekchain rounds are 10 minutes long. When a round ends, the hamster's work for that round is settled on chain. You call the next round before it starts: Nap (0 work), Trot (1–299), Run (300–549) or Zoomies (550+). Calls lock 10 seconds before the round begins.</p>
+    <p>Odds are fixed when you place the call. The Oracle seals its own call at the same moment with the same stake and always takes the band it thinks is most likely. Right calls pay stake × odds. If a round can't be resolved from chain data, both stakes come back.</p>
+    <p>Seeds are play points stored in this browser. They have no cash value.</p>
+  </details>
+
+  <footer>
+    <span id="srcTxt">Data: api.squeekchain.com</span>
+    <span id="settledTxt">Settled through —</span>
+    <a href="https://squeekchain.com/" target="_blank" rel="noopener">squeekchain.com</a>
+  </footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(() => {
+'use strict';
+const API = 'https://api.squeekchain.com';
+const START_BANK = 1000, LOCK_S = 10, KEY = 'wheelcall.v1';
+const BANDS = [
+  { id:'nap',  name:'Nap',     range:'0 work',   color:'var(--nap)',  lo:0,   hi:0 },
+  { id:'trot', name:'Trot',    range:'1–299',    color:'var(--trot)', lo:1,   hi:299 },
+  { id:'run',  name:'Run',     range:'300–549',  color:'var(--run)',  lo:300, hi:549 },
+  { id:'zoom', name:'Zoomies', range:'550+',     color:'var(--zoom)', lo:550, hi:Infinity },
+];
+const BMAP = Object.fromEntries(BANDS.map(b => [b.id, b]));
+const bandOf = w => w <= 0 ? 'nap' : w < 300 ? 'trot' : w < 550 ? 'run' : 'zoom';
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const fmt = n => Math.round(n).toLocaleString('en-US');
+const fx = m => (m < 2 ? m.toFixed(2) : m.toFixed(1)) + '×';
+const $ = id => document.getElementById(id);
+
+/* ---------- persistent state ---------- */
+const store = {
+  get(){ try { const v = localStorage.getItem(KEY); return v ? JSON.parse(v) : null; } catch { return null; } },
+  set(v){ try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} },
+};
+const S = { bank:START_BANK, oracle:START_BANK, refills:0, picks:[], rounds:{} };
+function normalize(){
+  if (!Array.isArray(S.picks)) S.picks = [];
+  if (!S.rounds || typeof S.rounds !== 'object' || Array.isArray(S.rounds)) S.rounds = {};
+  for (const k of ['bank', 'oracle', 'refills']) if (!Number.isFinite(S[k])) S[k] = k === 'refills' ? 0 : START_BANK;
+}
+// Several tabs share one saved state. Every change re-reads it first, so a tab never writes over
+// calls or balances that another tab saved in the meantime. Cached round results are merged,
+// except when another tab has moved to a new game installation: then this tab's rounds are stale
+// and are dropped, and this tab reloads its round config and history.
+function reload(){
+  const v = store.get(); if (!v || typeof v !== 'object') return;
+  const instChanged = !!(v.inst && S.inst && v.inst !== S.inst);
+  const rounds = Object.assign({}, (v.rounds && typeof v.rounds === 'object') ? v.rounds : {}, instChanged ? {} : S.rounds);
+  Object.assign(S, v); S.rounds = rounds; normalize();
+  if (instChanged) resetSession();
+}
+Object.assign(S, store.get() || {}); normalize();
+function persist(){
+  const ks = Object.keys(S.rounds).map(Number).sort((a,b)=>a-b);
+  if (ks.length > 2000) for (const k of ks.slice(0, ks.length - 2000)) delete S.rounds[k];
+  if (S.picks.length > 300) S.picks = S.picks.slice(-300);
+  store.set(S);
+}
+function save(){ reload(); persist(); }
+function transact(fn){ reload(); const out = fn(); persist(); return out; }
+window.addEventListener('storage', e => { if (e.key === KEY) { reload(); render(true); } });
+
+/* ---------- live (session) state ---------- */
+const L = {
+  g: 1793022600, d: 600, chain: null, cfgOk: false,
+  skew: 0, skewSamples: [],
+  settled: 0, status: null, meas: null, openWork: null, openWorkRound: 0,
+  tod: null, statsAt: 0, ambiguous: [], seen: new Set(), walk: null,
+  sel: null, stake: 100, lastStatusAt: 0, apiErr: 0, histReady: false,
+};
+// Forget everything tied to the previous game installation; ensureReady() then reloads it.
+function resetSession(){
+  L.cfgOk = false; L.histReady = false; L.settled = 0; L.ambiguous = []; L.seen = new Set(); L.walk = null;
+  L.openWork = null; L.tod = null; L.statsAt = 0; L.skewSamples = []; L.skew = 0;
+  lastTarget = 0;
+}
+// API numbers arrive as strings; anything missing or malformed becomes NaN and is ignored.
+const num = x => (typeof x === 'string' || typeof x === 'number') && String(x).trim() !== '' && Number.isFinite(+x) ? +x : NaN;
+// L.settled only moves forward; a jump of more than 30 days of rounds at once is treated as bad data
+const bumpSettled = v => { if (Number.isInteger(v) && v >= 0 && (L.settled === 0 || v - L.settled <= 30 * 86400 / L.d)) L.settled = Math.max(L.settled, v); };
+const now = () => Date.now() + L.skew;
+const roundAt = t => Math.floor((t/1000 - L.g) / L.d) + 1;           // round in progress at time t
+const roundStart = r => (L.g + (r-1) * L.d) * 1000;
+const roundEnd = r => (L.g + r * L.d) * 1000;
+
+async function getJSON(path){
+  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch(API + path, { signal: ctl.signal, cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
+
+/* ---------- round data ---------- */
+// Rounds read from the chain in this session are marked as seen. Payouts use only those, never
+// results that were merely cached in storage.
+function setRound(r, w){ if (Number.isInteger(r) && r > 0 && Number.isFinite(w) && w >= 0) { S.rounds[r] = w; L.seen.add(r); } }
+function applyBatch(a, b, active, work, recorded){
+  // a = previousSettledThroughRound, b = settledThroughRound; rounds a+1..b
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b <= a || b - a > 5000) return false;
+  bumpSettled(b);
+  if (b - a === 1 && Number.isFinite(work) && work >= 0) { setRound(b, work); return true; }
+  if (active === 0) { for (let r = a+1; r <= b; r++) setRound(r, 0); return true; }
+  if (recorded) {
+    let n = 0; for (let r = a+1; r <= b; r++) if (recorded[r] !== undefined) n++;
+    if (n === active) { for (let r = a+1; r <= b; r++) setRound(r, recorded[r] ?? 0); return; }
+  }
+  if (!L.ambiguous.some(x => x.a === a && x.b === b)) L.ambiguous.push({ a, b });
+  return true;
+}
+
+// The API is one game installation (today a Sepolia test). If it is replaced (e.g. mainnet launch),
+// round numbers restart, so stored rounds are dropped and open calls are refunded.
+// Returns false when a response comes from an installation this page has already moved away from
+// (a cached /v1/status can lag a few seconds behind a switch); such responses are ignored.
+function checkInstallation(id){
+  if (typeof id !== 'string' || !id) return true;
+  reload();
+  if (S.inst === id) return true;
+  if (Array.isArray(S.oldInsts) && S.oldInsts.includes(id)) return false;
+  const switched = transact(() => {
+    if (!S.inst) { S.inst = id; return false; }
+    if (S.inst === id) return false;
+    for (const pk of S.picks) if (pk.status === 'open') { S.bank += pk.stake; S.oracle += pk.stake; pk.status = 'void'; pk.voidReason = 'installation'; }
+    S.oldInsts = (Array.isArray(S.oldInsts) ? S.oldInsts : []).concat(S.inst).slice(-10);
+    S.rounds = {}; S.inst = id;
+    return true;
+  });
+  if (switched) { resetSession(); toast('Squeekchain started a new game installation. Open calls were refunded.'); }
+  return true;
+}
+// Work in the round that is running now, or null if the latest status snapshot belongs to an earlier round.
+const liveWork = () => (L.openWork != null && L.openWorkRound === roundAt(now())) ? L.openWork : null;
+
+async function loadCore(){
+  const j = await getJSON('/v1/core');
+  if (!checkInstallation(j?.installationId)) return;
+  const c = (j && j.configuration) || {};
+  let g = num(c.genesisTimestamp); const d = num(c.roundDuration);
+  if (!Number.isFinite(g) && typeof c.genesisTimestamp === 'string' && Number.isFinite(Date.parse(c.genesisTimestamp))) g = Date.parse(c.genesisTimestamp) / 1000;
+  if (g > 0 && d >= 60) { L.g = g; L.d = d; L.cfgOk = true; }
+  if (typeof j?.chain?.target === 'string' && j.chain.target) L.chain = j.chain.target;
+  bumpSettled(num(j?.core?.settledThroughRound));
+  const rec = {};
+  const evs = (Array.isArray(j?.events) ? j.events : []).filter(e => e && typeof e === 'object');
+  const args = e => Object.fromEntries((Array.isArray(e.arguments) ? e.arguments : []).filter(x => x && typeof x.name === 'string').map(x => [x.name, x.value]));
+  for (const e of evs) if (e.eventName === 'RoundRecorded') { const a = args(e), r = num(a.roundId), w = num(a.work); if (Number.isInteger(r) && w >= 0) rec[r] = w; }
+  for (const e of evs) if (e.eventName === 'BatchSettled') {
+    const a = args(e); applyBatch(num(a.previousSettledThroughRound), num(a.settledThroughRound), num(a.activeRoundCount), NaN, rec);
+  }
+  for (const [r, w] of Object.entries(rec)) setRound(+r, w);
+  L.ambiguous = L.ambiguous.filter(x => { for (let r = x.a+1; r <= x.b; r++) if (S.rounds[r] === undefined) return true; return false; });
+}
+
+async function loadEventsPage(cursor){
+  const q = '/v1/events?category=protocol&limit=100' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+  const j = await getJSON(q);
+  if (!checkInstallation(j?.installationId)) return { next: null, min: Infinity, max: -Infinity, stale: true };
+  let min = Infinity, max = -Infinity;
+  for (const e of (Array.isArray(j?.events) ? j.events : [])) {
+    if (!e || typeof e !== 'object' || e.type !== 'system.settlement_completed' || !e.payload || typeof e.payload !== 'object') continue;
+    const p = e.payload, a = num(p.previousSettledThroughRound), b = num(p.settledThroughRound);
+    if (!applyBatch(a, b, num(p.activeRoundCount), num(p.workAdded), null)) continue;
+    min = Math.min(min, a + 1); max = Math.max(max, b);
+  }
+  const next = typeof j?.nextCursor === 'string' && j.nextCursor ? j.nextCursor : null;
+  return { next, min, max };
+}
+
+// Walks settlement history from the newest page down to minRound, so rounds missed while the tab
+// slept are fetched too. A walk that has not reached minRound yet resumes from its cursor on the next
+// call (at most maxPages per call); once it reaches minRound or the end of history, the next walk
+// starts again from the newest page. Returns what the current walk has covered.
+async function walkHistory(minRound, maxPages){
+  let w = L.walk;
+  if (!w || w.done) w = L.walk = { cursor: null, min: Infinity, max: -Infinity, end: false, done: false };
+  for (let pages = 0; pages < maxPages && !w.done; pages++) {
+    const r = await loadEventsPage(w.cursor);
+    if (r.stale) break;
+    w.min = Math.min(w.min, r.min); w.max = Math.max(w.max, r.max);
+    if (w.min <= minRound) w.done = true;
+    else if (!r.next || r.next === w.cursor) { w.end = true; w.done = true; }
+    else w.cursor = r.next;
+  }
+  return { min: w.min, max: w.max, end: w.end };
+}
+
+async function loadStatus(){
+  const j = await getJSON('/v1/status');
+  if (!j || typeof j !== 'object') throw new Error('bad status');
+  if (!checkInstallation(j.installationId)) return;
+  // generatedAt is a cached snapshot time, so each reading is only a lower bound on the server clock.
+  // The clock moves forward only when the local clock is provably behind, using the second-highest
+  // of the last 12 readings so one bad timestamp can't shift it. A fast local clock just locks early.
+  const srv = Date.parse(j.generatedAt);
+  if (Number.isFinite(srv)) {
+    const v = srv - Date.now();
+    // a slow device clock (positive offset) is the dangerous direction, so large positive readings are kept
+    if (v >= -6 * 3600 * 1000) { L.skewSamples.push(v); if (L.skewSamples.length > 12) L.skewSamples.shift(); }
+  }
+  L.status = j; L.meas = (j.measurement && typeof j.measurement === 'object') ? j.measurement : null; L.lastStatusAt = Date.now();
+  const anchor = j.builder?.anchor, q = j.builder?.queued;
+  if (anchor) bumpSettled(num(anchor.settledThroughRound));
+  updateSkew();
+  let ow = q ? num(q.openRoundWorkUnits) : NaN;
+  if (!Number.isFinite(ow) && L.meas && anchor) ow = num(L.meas.cumulativeWorkUnits) - num(anchor.cumulativeWork) - (num(q?.closedWorkUnits) || 0);
+  L.openWork = Number.isFinite(ow) ? Math.max(0, ow) : null;
+  L.openWorkRound = roundAt(Number.isFinite(srv) ? srv : Date.now());
+}
+
+function updateSkew(){
+  const s = L.skewSamples.slice().sort((a, b) => b - a);
+  // one reading alone is trusted only for a small correction; from two on, the highest is ignored
+  let skew = s.length >= 2 ? s[1] : (s.length === 1 && s[0] <= 600 * 1000 ? s[0] : 0);
+  // A settled round has ended, so the server clock is at least past its end.
+  if (L.cfgOk && L.settled > 0) { const floor = roundEnd(L.settled) - Date.now(); if (floor <= Math.max(skew, 0) + 30 * 60 * 1000) skew = Math.max(skew, floor); }
+  L.skew = skew > 1000 ? skew : 0;
+}
+// Calls need a fresh status reading: it is how the page knows the clock and that the feed is live.
+const clockOk = () => Date.now() - L.lastStatusAt < 30000;
+
+async function loadStats(){
+  L.statsAt = Date.now();
+  const j = await getJSON('/v1/measurement/stats?range=7d');
+  if (!checkInstallation(j?.installationId)) return;
+  const td = j?.activity?.typicalDay;
+  if (Array.isArray(td)) {
+    const tod = new Array(48).fill(null);
+    for (const s of td) {
+      if (!s || typeof s !== 'object') continue;
+      const m = num(s.startMinuteUtc), i = Math.floor(m / 30), tot = num(s.totalWorkUnits), days = num(s.observedDayCount);
+      if (Number.isInteger(i) && i >= 0 && i < 48 && tot >= 0 && days >= 0) tod[i] = { start:i*30, total:tot, days };
+    }
+    if (tod.some(Boolean)) L.tod = tod;
+  }
+}
+
+/* ---------- the Oracle's model ---------- */
+function model(target){
+  const ks = Object.keys(S.rounds).map(Number).sort((a,b)=>a-b);
+  let nA=0, nAA=0, nI=0, nIA=0; const act = [];
+  for (let i = 0; i < ks.length; i++) {
+    const r = ks[i], w = S.rounds[r];
+    if (w > 0) act.push(w);
+    if (i && ks[i-1] === r-1) { const p = S.rounds[r-1] > 0, c = w > 0; if (p) { nA++; if (c) nAA++; } else { nI++; if (c) nIA++; } }
+  }
+  const pAA = (nAA + 3) / (nA + 5);       // stays-running rate
+  const pIA = (nIA + 1) / (nI + 12);      // wakes-up rate
+  const avgAct = act.length ? act.reduce((a,b)=>a+b,0) / act.length : 450;
+
+  // how likely the round before the target (the open one) ends up active
+  const open = target - 1;
+  const el = clamp((now() - roundStart(open)) / (L.d*1000), 0, 1);
+  let q;
+  if (liveWork() > 0) q = 1;
+  else {
+    const last = S.rounds[open-1];
+    const pl = last === undefined ? (nA+nI ? nA/(nA+nI) : 0.2) : (last > 0 ? 1 : 0);
+    q = (pl*pAA + (1-pl)*pIA) * (1 - el);
+  }
+  const pM = q*pAA + (1-q)*pIA;
+
+  let pT = null;
+  if (L.tod) {
+    const m = Math.floor(((roundStart(target)/1000) % 86400) / 60);
+    const s = L.tod[Math.floor(m/30)];
+    if (s && s.days > 0) pT = clamp(s.total / (s.days * 3) / avgAct, 0.02, 0.9);
+  }
+  const pActive = clamp(pT == null ? pM : 0.55*pM + 0.45*pT, 0.03, 0.95);
+
+  const cnt = { trot:2, run:2, zoom:2 };
+  for (const w of act) cnt[bandOf(w)]++;
+  const tot = cnt.trot + cnt.run + cnt.zoom;
+  const p = { nap:1-pActive, trot:pActive*cnt.trot/tot, run:pActive*cnt.run/tot, zoom:pActive*cnt.zoom/tot };
+  const mult = {};
+  for (const k in p) { const x = 0.9 / p[k]; mult[k] = clamp(x < 2 ? Math.floor(x * 100) / 100 : Math.floor(x * 10) / 10, 1.02, 30); }
+  const oracle = Object.keys(p).reduce((a,b) => p[b] > p[a] ? b : a, 'nap');
+  return { p, mult, oracle, samples: ks.length };
+}
+
+/* ---------- calls ---------- */
+const targetRound = () => roundAt(now()) + 1;
+const locked = r => roundStart(r) - now() <= LOCK_S*1000;
+const pickFor = r => S.picks.find(x => x.round === r && x.status === 'open');
+// A round the chain has already settled, or whose result is already known, can never take a call,
+// whatever the device clock says.
+const bettable = r => Number.isInteger(r) && r > L.settled && S.rounds[r] === undefined && !L.seen.has(r);
+
+function placeCall(){
+  const r = targetRound();
+  if (!L.sel || locked(r) || !L.cfgOk || !L.histReady || !clockOk() || !bettable(r)) return;
+  const m = (lastM && lastTarget === r) ? lastM : model(r);
+  const res = transact(() => {
+    if (!bettable(r)) return 'past';
+    if (pickFor(r)) return 'exists';
+    if (L.stake > S.bank) return 'funds';
+    S.bank -= L.stake; S.oracle -= L.stake;
+    S.picks.push({ round:r, band:L.sel, stake:L.stake, mult:m.mult[L.sel], oBand:m.oracle, oMult:m.mult[m.oracle], placedAt:Date.now(), status:'open', tries:0 });
+    return 'ok';
+  });
+  toast(res === 'ok' ? 'Call placed for round ' + r : res === 'exists' ? 'You already have a call for round ' + r : res === 'past' ? 'Round ' + r + ' has already been settled; check your device clock' : 'Not enough seeds for that stake');
+  render(true);
+}
+function cancelCall(){
+  const r = targetRound();
+  if (locked(r)) return;
+  const done = transact(() => {
+    const pk = pickFor(r); if (!pk) return false;
+    S.bank += pk.stake; S.oracle += pk.stake;
+    S.picks = S.picks.filter(x => x !== pk);
+    return true;
+  });
+  if (done) toast('Call cancelled'); render(true);
+}
+
+let resolving = false;
+async function resolvePicks(){
+  if (resolving) return; resolving = true;
+  try {
+    reload();
+    const known = r => L.seen.has(r) && S.rounds[r] !== undefined;
+    const pend = S.picks.filter(x => x.status === 'open' && x.round <= L.settled && !known(x.round));
+    let walk = null;
+    if (pend.length) {
+      const minR = Math.min(...pend.map(x => x.round));
+      let ok = true;
+      try { await loadCore(); } catch { ok = false; }
+      try { walk = await walkHistory(minR, 6); } catch { ok = false; }
+      if (!ok) walk = null;
+    }
+    const changed = transact(() => {
+    let changed = false;
+    // A pass counts toward refunding a call only when the chain data loaded, the settlement feed has
+    // reached the round, and the walk went down to it, yet the round's work still can't be worked out
+    // (a batch that settled several rounds at once).
+    if (walk) for (const pk of S.picks) {
+      if (pk.status !== 'open' || known(pk.round)) continue;
+      if (pk.round <= walk.max && (walk.min <= pk.round || walk.end)) {
+        pk.tries = (pk.tries || 0) + 1; if (!pk.missingSince) pk.missingSince = Date.now(); changed = true;
+      }
+    }
+    for (const pk of S.picks) {
+      if (pk.status !== 'open') continue;
+      const w = S.rounds[pk.round];
+      if (known(pk.round) && pk.round <= L.settled && roundEnd(pk.round) <= now()) {
+        const b = bandOf(w);
+        pk.work = w;
+        pk.win = b === pk.band; pk.oWin = b === pk.oBand;
+        pk.payout = pk.win ? Math.round(pk.stake * pk.mult) : 0;
+        pk.oPayout = pk.oWin ? Math.round(pk.stake * pk.oMult) : 0;
+        S.bank += pk.payout; S.oracle += pk.oPayout;
+        pk.status = 'settled'; changed = true;
+        if (pk.win) toast('Round ' + pk.round + ': ' + BMAP[b].name + '! +' + fmt(pk.payout) + ' seeds');
+      } else if (pk.tries >= 3 && pk.missingSince && Date.now() - pk.missingSince > 15 * 60 * 1000) {
+        // the feed has the round and the walk reached it, yet its work is still unknown after 15 minutes
+        S.bank += pk.stake; S.oracle += pk.stake; pk.status = 'void'; changed = true;
+      }
+    }
+    return changed;
+    });
+    if (changed) render(true);
+  } finally { resolving = false; }
+}
+
+/* ---------- UI ---------- */
+let toastT;
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
+const mmss = ms => { ms = Math.max(0, ms); const s = Math.floor(ms/1000); return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0'); };
+
+function buildBands(){
+  const box = $('bands');
+  box.innerHTML = '';
+  for (const b of BANDS) {
+    const el = document.createElement('button');
+    el.className = 'band'; el.id = 'band-' + b.id; el.style.setProperty('--c', b.color);
+    el.setAttribute('aria-pressed', 'false');
+    el.innerHTML = `<span class="nm">${b.name}</span><span class="rg">${b.range}</span><span class="odds"><span class="mult" data-m>—</span><span class="pc" data-p>—</span></span>`;
+    el.addEventListener('click', () => { L.sel = b.id; render(true); });
+    box.appendChild(el);
+  }
+}
+
+let lastModelAt = 0, lastM = null, lastTarget = 0;
+function render(full){
+  try { renderNow(full); } catch (e) { console.error('render failed', e); }
+}
+function renderNow(full){
+  const t = now(), open = roundAt(t), tgt = open + 1;
+  const ready = L.cfgOk;
+
+  // header chips
+  const m = L.meas;
+  const ageMs = L.lastStatusAt ? Date.now() - L.lastStatusAt : Infinity;
+  let feed = 'Connecting…', fd = '';
+  if (L.apiErr > 2 && ageMs > 30000) { feed = 'API unreachable, retrying'; fd = 'bad'; }
+  else if (m) {
+    const obsAge = (t - Date.parse(m.observedAt)) / 1000;
+    if (m.coreStatus === 'COUNTER_FAULT') { feed = 'Wheel sensor fault'; fd = 'bad'; }
+    else if (m.freshness === 'stale' || obsAge > (+m.staleAfterSeconds || 120)) { feed = 'Wheel feed stale'; fd = 'warn'; }
+    else if (m.rpmMilli > 0 || m.speedMmPerSecond > 0) { feed = 'Hamster running'; fd = 'on'; }
+    else { feed = 'Hamster resting'; fd = ''; }
+  } else if (L.status) { feed = 'Wheel feed offline'; fd = 'warn'; }
+  $('feedTxt').textContent = feed; $('feedDot').className = 'dot ' + fd;
+  $('chainTxt').textContent = typeof L.chain === 'string' && L.chain ? (L.chain[0].toUpperCase() + L.chain.slice(1) + ' · round ' + (L.settled || '—') + ' settled') : 'Chain';
+  $('chainDot').className = 'dot ' + (L.settled && open - L.settled <= 2 ? 'on' : L.settled ? 'warn' : '');
+
+  // live panel
+  $('openLbl').textContent = ready ? 'Round ' + open : 'Round —';
+  const lw = liveWork();
+  if (lw == null) { $('openWork').textContent = '—'; $('openBand').textContent = L.status ? 'Waiting for this round\'s first reading' : '\u00a0'; }
+  else {
+    $('openWork').textContent = fmt(lw);
+    const b = BMAP[bandOf(lw)];
+    $('openBand').textContent = 'Tracking ' + b.name + ' (' + b.range + ')';
+  }
+  const el = ready ? clamp((t - roundStart(open)) / (L.d*1000), 0, 1) : 0;
+  $('closeIn').textContent = ready ? mmss(roundEnd(open) - t) : '--:--';
+  $('roundBar').style.width = (el*100).toFixed(1) + '%';
+  if (m) {
+    $('rpm').textContent = (m.rpmMilli/1000).toFixed(1) + ' rpm';
+    $('speed').textContent = (m.speedMmPerSecond * 0.0036).toFixed(2) + ' km/h';
+    $('odo').textContent = (m.distanceMm/1e6).toFixed(2) + ' km';
+  }
+
+  // slip
+  $('tgtLbl').textContent = ready ? 'Round ' + tgt : 'Round —';
+  const live = clockOk();
+  const past = ready && !bettable(tgt);
+  const isLocked = !ready || !L.histReady || !live || past || locked(tgt);
+  $('lockIn').textContent = past && L.histReady ? 'Calls paused: checking the clock' : !live && ready && L.histReady ? 'Calls paused: waiting for the live feed' : ready && L.histReady ? (isLocked ? 'Locked, next slip opens in ' + mmss(roundEnd(open) - t) : 'Calls lock in ' + mmss(roundStart(tgt) - t - LOCK_S*1000)) : 'Loading rounds…';
+  const pk = pickFor(tgt);
+  if (ready && (full || t - lastModelAt > 5000 || tgt !== lastTarget)) { lastM = model(tgt); lastModelAt = t; lastTarget = tgt; }
+  for (const b of BANDS) {
+    const btn = $('band-' + b.id);
+    const pressed = pk ? pk.band === b.id : L.sel === b.id;
+    btn.setAttribute('aria-pressed', String(pressed));
+    btn.disabled = isLocked || !!pk;
+    const mu = pk ? (b.id === pk.band ? pk.mult : null) : lastM?.mult[b.id];
+    btn.querySelector('[data-m]').textContent = mu ? fx(mu) : (pk ? '' : '—');
+    btn.querySelector('[data-p]').textContent = !pk && lastM ? Math.round(lastM.p[b.id]*100) + '% likely' : '';
+  }
+  if (!pk && L.stake > S.bank && S.bank >= 25) L.stake = [250, 100, 50, 25].find(v => v <= S.bank);
+  document.querySelectorAll('.stake').forEach(s => { s.setAttribute('aria-pressed', String(+s.dataset.s === L.stake)); s.disabled = !!pk || +s.dataset.s > S.bank; });
+  const place = $('placeBtn'), cancel = $('cancelBtn'), refill = $('refillBtn');
+  const hasOpen = S.picks.some(x => x.status === 'open');
+  refill.hidden = !(S.bank < 25 && !hasOpen);
+  if (pk) {
+    place.hidden = true; cancel.hidden = isLocked;
+  } else {
+    place.hidden = false; cancel.hidden = true;
+    place.disabled = isLocked || !L.sel || L.stake > S.bank;
+    place.textContent = isLocked ? (!ready || !L.histReady ? 'Loading rounds…' : past ? 'Checking the clock' : !live ? 'Waiting for live feed' : 'Locked') : !L.sel ? 'Pick a band' : 'Call ' + BMAP[L.sel].name + ' · ' + L.stake + ' → ' + fmt(L.stake * (lastM?.mult[L.sel] || 0));
+  }
+  const sealed = $('sealed');
+  if (pk) {
+    sealed.hidden = false;
+    const started = t >= roundStart(tgt);
+    sealed.innerHTML = `You called <b>${BMAP[pk.band].name}</b> at ${fx(pk.mult)} for ${pk.stake} seeds. ` +
+      (started ? `The Oracle called <b>${BMAP[pk.oBand].name}</b> at ${fx(pk.oMult)}.` : `The Oracle's call is sealed until the round starts.`);
+  } else sealed.hidden = true;
+
+  // live ticket (round in progress that has a call)
+  const livePk = S.picks.find(x => x.round === open && x.status === 'open');
+  if (livePk && !pk) {
+    sealed.hidden = false;
+    sealed.innerHTML = `Round ${open} is running: you have <b>${BMAP[livePk.band].name}</b>, the Oracle has <b>${BMAP[livePk.oBand].name}</b>. Work so far: <b>${liveWork() != null ? fmt(liveWork()) : '—'}</b>.`;
+  }
+
+  if (full) renderLists();
+}
+
+function renderLists(){
+  $('bank').textContent = fmt(S.bank);
+  $('bankSub').textContent = S.refills ? 'Refilled ' + S.refills + '×' : 'Started with 1,000';
+  $('obank').textContent = fmt(S.oracle);
+  const done = S.picks.filter(x => x.status === 'settled');
+  let you = 0, orc = 0, hits = 0, best = 0;
+  for (const p of done) {
+    if (p.win) hits++;
+    if (p.payout > best) best = p.payout;
+    if (p.win && !p.oWin) you++; else if (p.oWin && !p.win) orc++;
+  }
+  $('h2h').textContent = you + '–' + orc;
+  $('h2hSub').textContent = you > orc ? 'You lead the Oracle' : orc > you ? 'The Oracle leads' : 'Level with the Oracle';
+  $('hit').textContent = done.length ? Math.round(hits/done.length*100) + '%' : '—';
+  $('hitSub').textContent = done.length ? hits + ' of ' + done.length + ' · best +' + fmt(best) : 'No settled calls yet';
+
+  const ul = $('tickets'); ul.innerHTML = '';
+  const list = S.picks.slice().sort((a,b) => b.round - a.round).slice(0, 14);
+  if (!list.length) { ul.innerHTML = '<li class="empty">No calls yet. Pick a band for the next round and place your first call.</li>'; }
+  const t = now();
+  for (const p of list) {
+    const li = document.createElement('li'); li.className = 'ticket';
+    const b = BMAP[p.band], ob = BMAP[p.oBand];
+    let res, cls, sub;
+    if (p.status === 'settled') {
+      res = p.win ? '+' + fmt(p.payout) : '−' + fmt(p.stake); cls = p.win ? 'win' : 'loss';
+      sub = `Hamster did ${fmt(p.work)} (${BMAP[bandOf(p.work)].name}) · Oracle ${ob.name} ${p.oWin ? 'hit' : 'missed'}`;
+    } else if (p.status === 'void') {
+      res = 'refunded'; cls = 'pend'; sub = 'Round could not be resolved from chain data';
+    } else {
+      cls = 'pend';
+      if (t < roundStart(p.round)) { res = 'sealed'; sub = 'Starts in ' + mmss(roundStart(p.round) - t); }
+      else if (t < roundEnd(p.round)) { res = 'running'; sub = 'Oracle has ' + ob.name; }
+      else { res = 'settling'; sub = 'Waiting for round ' + p.round + ' on chain · Oracle has ' + ob.name; }
+    }
+    li.innerHTML = `<span class="rn">R${p.round}</span><span class="what"><b><span class="tag" style="--c:${b.color}"></span>${b.name}</b> · ${p.stake} @ ${fx(p.mult)}<small>${sub}</small></span><span class="res ${cls}">${res}</span>`;
+    ul.appendChild(li);
+  }
+  $('bragBtn').hidden = !done.length;
+
+  drawTape(); drawClock();
+  $('settledTxt').textContent = 'Settled through round ' + (L.settled || '—') + ' · ' + Object.keys(S.rounds).length + ' rounds loaded';
+}
+
+/* tape */
+const CSS = {};
+function css(v){ if (!(v in CSS)) CSS[v] = getComputedStyle(document.documentElement).getPropertyValue(v).trim(); return CSS[v]; }
+function drawTape(){
+  const cv = $('tape'), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight; if (!W) return;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const c = cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,W,H);
+  const open = roundAt(now()), N = W < 480 ? 24 : 36, top = 8, base = H - 22, maxW = 700;
+  const colW = W / N;
+  c.strokeStyle = css('--line'); c.lineWidth = 1;
+  c.fillStyle = css('--muted'); c.font = '10px ' + css('--f-mono');
+  for (const g of [300, 550]) {
+    const y = base - (g/maxW)*(base-top);
+    c.setLineDash([3,4]); c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke(); c.setLineDash([]);
+    c.fillText(String(g), 2, y - 3);
+  }
+  c.beginPath(); c.moveTo(0, base + .5); c.lineTo(W, base + .5); c.stroke();
+  for (let i = 0; i < N; i++) {
+    const r = open - (N - 1) + i, x = i*colW + colW*0.18, w = colW*0.64;
+    const isOpen = r === open;
+    const val = isOpen ? liveWork() : S.rounds[r];
+    if (val == null) { c.fillStyle = css('--line'); c.fillRect(x, base - 3, w, 3); }
+    else if (val === 0) { c.fillStyle = css('--nap'); c.beginPath(); c.arc(x + w/2, base - 4, Math.min(2.5, w/2), 0, 7); c.fill(); }
+    else {
+      const h = Math.max(isOpen ? 8 : 3, Math.min(1, val/maxW) * (base - top));
+      const col = css('--' + bandOf(val));
+      if (isOpen) { c.strokeStyle = col; c.setLineDash([3,3]); c.strokeRect(x+.5, base - h + .5, w-1, h-1); c.setLineDash([]); }
+      else { c.fillStyle = col; c.fillRect(x, base - h, w, h); }
+    }
+    if ((open - r) % 6 === 0) { c.fillStyle = css('--muted'); c.textAlign = isOpen ? 'right' : 'center'; c.fillText(isOpen ? 'now' : 'R' + r, isOpen ? W - 1 : x + w/2, H - 6); c.textAlign = 'left'; }
+  }
+  $('tapeLbl').textContent = 'Last ' + N + ' rounds · work per round';
+  const lg = $('legend');
+  if (!lg.childElementCount) lg.innerHTML = BANDS.map(b => `<span><span class="tag" style="--c:${b.color}"></span>${b.name} ${b.range}</span>`).join('') + '<span>dashed = round in progress</span>';
+}
+
+/* hamster hours (local time) */
+function drawClock(){
+  const box = $('clock');
+  if (!L.tod) { box.innerHTML = ''; $('clockAxis').textContent = 'Loading 7-day activity…'; return; }
+  const offMin = -new Date().getTimezoneOffset();
+  const cells = new Array(48);
+  for (const s of L.tod) {
+    if (!s) continue;
+    const localMin = ((s.start + offMin) % 1440 + 1440) % 1440;
+    cells[Math.floor(localMin/30)] = s.days ? s.total / s.days : 0;
+  }
+  const mx = Math.max(1, ...cells.map(v => v || 0));
+  const tgt = targetRound();
+  const tl = new Date(roundStart(tgt)); const tIdx = Math.floor((tl.getHours()*60 + tl.getMinutes())/30);
+  box.innerHTML = '';
+  cells.forEach((v, i) => {
+    const el = document.createElement('i');
+    el.style.opacity = (0.08 + 0.92 * (v||0)/mx).toFixed(2);
+    if (i === tIdx) el.className = 'tgt';
+    const h = String(Math.floor(i/2)).padStart(2,'0'), mm = i%2 ? '30' : '00';
+    el.title = `${h}:${mm} · avg ${fmt(v||0)} work per day`;
+    box.appendChild(el);
+  });
+  $('clockAxis').innerHTML = '<span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>';
+}
+
+/* wheel */
+const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+let ang = 0, rpmShown = 0, lastFrame = performance.now();
+function drawWheel(ts){
+  const cv = $('wheel'), c = cv.getContext('2d'), W = cv.width, R = W/2 - 18;
+  const dt = Math.min(0.1, (ts - lastFrame)/1000); lastFrame = ts;
+  const stale = !L.meas || L.meas.freshness === 'stale';
+  const target = stale ? 0 : (L.meas.rpmMilli || 0)/1000;
+  rpmShown += (target - rpmShown) * Math.min(1, dt*2);
+  if (!reduce) ang += rpmShown/60 * Math.PI*2 * dt;
+  c.clearRect(0,0,W,W);
+  c.save(); c.translate(W/2, W/2);
+  // stand
+  c.strokeStyle = css('--line'); c.lineWidth = 10; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(0,0); c.lineTo(-R*0.55, R+10); c.moveTo(0,0); c.lineTo(R*0.55, R+10); c.stroke();
+  // wheel
+  c.save(); c.rotate(ang);
+  c.strokeStyle = css('--muted'); c.lineWidth = 6; c.beginPath(); c.arc(0,0,R,0,Math.PI*2); c.stroke();
+  c.lineWidth = 3; c.beginPath(); c.arc(0,0,R-16,0,Math.PI*2); c.stroke();
+  c.strokeStyle = css('--line'); c.lineWidth = 3;
+  for (let i = 0; i < 6; i++) { const a = i*Math.PI/3; c.beginPath(); c.moveTo(0,0); c.lineTo(Math.cos(a)*(R-16), Math.sin(a)*(R-16)); c.stroke(); }
+  c.strokeStyle = css('--amber'); c.lineWidth = 4;
+  for (let i = 0; i < 28; i++) { const a = i*Math.PI*2/28; c.beginPath(); c.moveTo(Math.cos(a)*(R-16), Math.sin(a)*(R-16)); c.lineTo(Math.cos(a)*R, Math.sin(a)*R); c.stroke(); }
+  c.restore();
+  c.fillStyle = css('--amber'); c.beginPath(); c.arc(0,0,9,0,Math.PI*2); c.fill();
+  // hamster (generic silhouette) sitting at the bottom inside the wheel
+  const run = rpmShown > 1 && !reduce;
+  const bob = run ? Math.sin(ts/70)*4 : 0;
+  c.translate(0, R - 52 + bob);
+  c.fillStyle = css('--fg');
+  c.beginPath(); c.ellipse(0, 0, 40, 27, 0, 0, Math.PI*2); c.fill();
+  c.beginPath(); c.ellipse(32, -10, 20, 17, -0.3, 0, Math.PI*2); c.fill();
+  c.fillStyle = css('--amber'); c.beginPath(); c.arc(26, -28, 7, 0, Math.PI*2); c.fill();
+  c.fillStyle = css('--board'); c.beginPath(); c.arc(40, -14, run ? 3 : 0.8, 0, Math.PI*2); c.fill();
+  if (!run) { c.strokeStyle = css('--board'); c.lineWidth = 2; c.beginPath(); c.moveTo(36,-14); c.lineTo(44,-14); c.stroke(); }
+  c.restore();
+  requestAnimationFrame(drawWheel);
+}
+
+/* events */
+buildBands();
+document.querySelectorAll('.stake').forEach(s => s.addEventListener('click', () => { L.stake = +s.dataset.s; render(false); }));
+$('placeBtn').addEventListener('click', placeCall);
+$('cancelBtn').addEventListener('click', cancelCall);
+$('refillBtn').addEventListener('click', () => {
+  const ok = transact(() => { if (S.bank >= 25 || S.picks.some(x => x.status === 'open')) return false; S.bank += START_BANK; S.refills++; return true; });
+  if (ok) toast('Added 1,000 seeds'); render(true);
+});
+$('bragBtn').addEventListener('click', async () => {
+  const p = S.picks.filter(x => x.status === 'settled').sort((a,b) => b.round - a.round)[0];
+  if (!p) return;
+  const txt = `Wheel Call · Squeekchain round ${p.round}: I called ${BMAP[p.band].name} at ${fx(p.mult)}, the hamster did ${fmt(p.work)} work. ` +
+    (p.win ? `+${fmt(p.payout)} seeds.` : `Missed.`) + ` Oracle called ${BMAP[p.oBand].name}. Me ${fmt(S.bank)} vs Oracle ${fmt(S.oracle)} seeds.`;
+  try { await navigator.clipboard.writeText(txt); toast('Copied'); }
+  catch { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); toast('Copied'); } catch { toast('Copy blocked, text selected'); } setTimeout(() => ta.remove(), 4000); }
+});
+window.addEventListener('resize', () => drawTape());
+
+/* boot + polling */
+async function safe(fn){ try { await fn(); L.apiErr = 0; return true; } catch (e) { L.apiErr++; return false; } }
+let lastOpen = 0, lastFull = 0;
+async function tick(){
+  const open = roundAt(now());
+  if (open !== lastOpen || Date.now() - lastFull > 5000) { lastOpen = open; lastFull = Date.now(); render(true); }
+  else render(false);
+}
+// Loads round config and history; called at boot and retried on every status poll until it succeeds,
+// so a failed first request never leaves the game stuck on "Loading rounds…".
+let readying = false;
+async function ensureReady(){
+  if (readying) return; readying = true;
+  try {
+    if (!L.cfgOk) await safe(loadCore);
+    if (L.cfgOk && !L.histReady) {
+      if (await safe(() => walkHistory(L.settled - 300, 6))) { L.histReady = true; render(true); await resolvePicks(); }
+    }
+    if (!L.tod && Date.now() - L.statsAt > 5 * 60 * 1000) await safe(loadStats);
+  } finally { readying = false; }
+}
+async function boot(){
+  // Timers start first, so a failure while loading can never leave the page without polling.
+  setInterval(tick, 500);
+  setInterval(async () => { await safe(loadStatus); if (!L.cfgOk || !L.histReady || !L.tod) await ensureReady(); }, 5000);
+  setInterval(async () => { if (await safe(() => loadEventsPage(null))) { await safe(resolvePicks); render(true); } }, 30000);
+  setInterval(() => safe(loadStats), 30*60*1000);
+  render(true);
+  await Promise.all([ safe(loadCore), safe(loadStatus), safe(loadStats) ]);
+  render(true);
+  await ensureReady();
+  render(true);
+  save();
+}
+requestAnimationFrame(drawWheel);
+boot();
+})();
+</script>
+
+</body>
+</html>
